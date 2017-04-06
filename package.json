@@ -1,0 +1,23 @@
+{
+  "name": "@sdinteractive/requirejs-export-plugin",
+  "version": "1.0.0",
+  "description": "webpack plugin to export modules to requirejs.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sdinteractive/webpack-requirejs-export-plugin.git"
+  },
+  "keywords": [
+    "webpack",
+    "requirejs"
+  ],
+  "author": "Something Digital",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/sdinteractive/webpack-requirejs-export-plugin/issues"
+  },
+  "homepage": "https://github.com/sdinteractive/webpack-requirejs-export-plugin#readme"
+}
