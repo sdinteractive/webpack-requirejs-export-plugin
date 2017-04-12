@@ -5,30 +5,106 @@ const ConcatSource = require('webpack-sources').ConcatSource;
 function RequireJsExportPlugin() {
 }
 
+function gatherRequireJsImports(modules) {
+    let needsImport = [];
+    for (var module of modules) {
+        // If the requirejs-loader was used, then we need to wrap and import this module.
+        // TODO: Clean up this check.
+        if (module.request && module.request.indexOf('requirejs-loader') !== -1) {
+            needsImport.push(module.rawRequest);
+        }
+    }
+
+    return needsImport;
+}
+
+function gatherRequireJsExports(modules) {
+    let needsExport = [];
+    for (var module of modules) {
+        // If the requirejs-loader was used, then we need to wrap and import this module.
+        // TODO: Clean up this check.
+        if (module.request && module.request.indexOf('requirejs-loader') === -1) {
+            // We use the raw request to define the same name, including loader.
+            var name = module.rawRequest;
+            // TODO: Maybe just strip everything but 'text!'?
+            if (name.indexOf('script-loader!') === 0) {
+                name = name.substr('script-loader!'.length);
+            }
+            needsExport.push({ id: module.id, name: name });
+        }
+    }
+
+    return needsExport;
+}
+
+function generateProlog(chunkId, imports, exports) {
+    const jsonImports = JSON.stringify(imports);
+    const jsonDefineStub = JSON.stringify('__webpack_export_' + chunkId);
+
+    let prolog = `
+        (function(){
+            var __webpack_exports__ = {};`;
+
+    if (imports.length !== 0) {
+        prolog += `
+            window.define(${jsonDefineStub}, ${jsonImports}, function() {`;
+    }
+
+    return prolog;
+}
+
+function generateEpilog(chunkId, imports, exports) {
+    let epilog = '';
+    if (imports.length !== 0) {
+        epilog += `
+            });`;
+    }
+
+    const jsonDefineStubs = JSON.stringify(imports.length === 0 ? [] : ['__webpack_export_' + chunkId]);
+    for (let module of exports) {
+        const jsonName = JSON.stringify(module.name);
+        const jsonId = JSON.stringify(module.id);
+        epilog += `
+            window.define(${jsonName}, ${jsonDefineStubs}, function() { return __webpack_exports__[${jsonId}]; });`;
+    }
+
+    epilog += `
+        }());`;
+
+    return epilog;
+}
+
 RequireJsExportPlugin.prototype.apply = function(compiler) {
     compiler.plugin('compilation', function (compilation, data) {
-        compilation.plugin('succeed-module', function(module) {
-            // This ensures we don't export the import stubs for requirejs.
-            // TODO: Determine loader better.
-            if (module.request && String(module.request).indexOf('requirejs-loader') !== -1) {
-                return;
-            }
-
-            // TODO: Find a way around using _source.
-            if (module.rawRequest && module._source) {
-                // We use the raw request to define the same name, including loader.
-                var name = module.rawRequest;
-                // TODO: Maybe just strip everything but 'text!'?
-                if (name.indexOf('script-loader!') === 0) {
-                    name = name.substr('script-loader!'.length);
+        compilation.plugin('after-optimize-module-ids', function(modules) {
+            for (let module of modules) {
+                // This ensures we don't export the import stubs for requirejs.
+                // TODO: Determine loader better.
+                if (module.request && String(module.request).indexOf('requirejs-loader') !== -1) {
+                    continue;
                 }
 
-                var definition = 'window.define(' + JSON.stringify(name) + ', [], function() { return module.exports; });';
-                module._source = new ConcatSource(module._source, '\n', definition);
+                // TODO: Find a way around using _source.
+                if (module.rawRequest && module._source) {
+                    var definition = '__webpack_exports__[' + JSON.stringify(module.id) + '] = module.exports;';
+                    module._source = new ConcatSource(module._source, '\n', definition);
+                }
             }
+        });
+
+        compilation.plugin('chunk-asset', (chunk, filename) => {
+            const needsImport = gatherRequireJsImports(chunk.modules);
+            const needsExport = gatherRequireJsExports(chunk.modules);
+            if (needsImport.length != 0 || needsExport.length != 0) {
+                let prolog = generateProlog(chunk.id, needsImport, needsExport);
+                let epilog = generateEpilog(chunk.id, needsImport, needsExport);
+
+                compilation.assets[filename] = new ConcatSource(prolog, "\n", compilation.assets[filename], "\n", epilog);
+            }
+
+            chunk['--requirejs-export:done'] = true;
         });
     });
 };
-
 
 module.exports = RequireJsExportPlugin;
