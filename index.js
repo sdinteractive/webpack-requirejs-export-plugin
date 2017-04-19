@@ -10,7 +10,7 @@ function gatherRequireJsImports(modules) {
     for (var module of modules) {
         // If the requirejs-loader was used, then we need to wrap and import this module.
         // TODO: Clean up this check.
-        if (module.request && module.request.indexOf('requirejs-loader') !== -1) {
+        if (module.request && String(module.request).indexOf('requirejs-loader') !== -1) {
             needsImport.push(module.rawRequest);
         }
     }
@@ -18,12 +18,25 @@ function gatherRequireJsImports(modules) {
     return needsImport;
 }
 
+function shouldExport(module) {
+    // This ensures we don't export the import stubs for requirejs.
+    // TODO: Clean up this check.
+    if (!module.request || String(module.request).indexOf('requirejs-loader') !== -1) {
+        return false;
+    }
+
+    // Some internal modules have no rawRequest - don't export those either.
+    if (!module.rawRequest) {
+        return false;
+    }
+
+    return true;
+}
+
 function gatherRequireJsExports(modules) {
     let needsExport = [];
     for (var module of modules) {
-        // If the requirejs-loader was used, then we need to wrap and import this module.
-        // TODO: Clean up this check.
-        if (module.request && module.request.indexOf('requirejs-loader') === -1) {
+        if (shouldExport(module)) {
             // We use the raw request to define the same name, including loader.
             var name = module.rawRequest;
             // TODO: Maybe just strip everything but 'text!'?
@@ -78,14 +91,8 @@ RequireJsExportPlugin.prototype.apply = function(compiler) {
     compiler.plugin('compilation', function (compilation, data) {
         compilation.plugin('after-optimize-module-ids', function(modules) {
             for (let module of modules) {
-                // This ensures we don't export the import stubs for requirejs.
-                // TODO: Determine loader better.
-                if (module.request && String(module.request).indexOf('requirejs-loader') !== -1) {
-                    continue;
-                }
-
                 // TODO: Find a way around using _source.
-                if (module.rawRequest && module._source) {
+                if (shouldExport(module) && module._source) {
                     var definition = '__webpack_exports__[' + JSON.stringify(module.id) + '] = module.exports;';
                     module._source = new ConcatSource(module._source, '\n', definition);
                 }
