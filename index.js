@@ -81,25 +81,14 @@ function generateEpilog(chunkId, imports, exports) {
             window.define(${jsonName}, ${jsonDefineStubs}, function() { return __webpack_exports__[${jsonId}]; });`;
     }
 
+    if (imports.length !== 0) {
+        // Immediately require script
+        epilog += `
+            window.require(['__webpack_export_${chunkId}'], function() {});`;
+    }
+
     epilog += `
         }());`;
-
-    /**
-     * Magento 2's RequireJS implementation appears
-     * to only fire scripts when it needs to.
-     *
-     * Since this is a custom script, it won't
-     * ever - by default - fire. So this is us forcing
-     * the script in question to fire immediately.
-     *
-     * TODO: look into the exact process Magento 2
-     * employs in doing this. There might be a smarter
-     * way to handle execution.
-     */
-    if (imports.length !== 0) {
-        epilog += `
-            window.require(['__webpack_export_0'], function() {});`;
-    }
 
     return epilog;
 }
