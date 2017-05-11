@@ -81,6 +81,12 @@ function generateEpilog(chunkId, imports, exports) {
             window.define(${jsonName}, ${jsonDefineStubs}, function() { return __webpack_exports__[${jsonId}]; });`;
     }
 
+    if (imports.length !== 0) {
+        // Immediately require script
+        epilog += `
+            window.require(['__webpack_export_${chunkId}'], function() {});`;
+    }
+
     epilog += `
         }());`;
 
