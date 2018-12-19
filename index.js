@@ -10,7 +10,8 @@ function gatherRequireJsImports(modules) {
     for (var module of modules) {
         // If the requirejs-loader was used, then we need to wrap and import this module.
         // TODO: Clean up this check.
-        if (module.request && String(module.request).indexOf('jquery.js') !== -1) {
+        // Necessary to check for both jquery.js and jquery.min.js (for sites with minification)
+        if (module.request && (String(module.request).indexOf('jquery.js') !== -1 || String(module.request).indexOf('jquery.min.js') !== -1)) {
             needsImport.push('mixins!' + module.rawRequest);
         } else if (module.request && String(module.request).indexOf('requirejs-loader') !== -1) {
             needsImport.push(module.rawRequest);
