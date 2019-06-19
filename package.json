@@ -1,6 +1,6 @@
 {
   "name": "@sdinteractive/requirejs-export-plugin",
-  "version": "2.0.1",
+  "version": "3.0.0",
   "description": "webpack plugin to export modules to requirejs.",
   "main": "index.js",
   "scripts": {
