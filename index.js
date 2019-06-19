@@ -96,9 +96,17 @@ function generateEpilog(chunkId, imports, exports) {
     return epilog;
 }
 
+function registerHook(object, oldName, newName, cb) {
+    if (object.hooks) {
+        object.hooks[newName].tap('RequireJsExportPlugin', cb);
+    } else {
+        object.plugin(oldName, cb);
+    }
+}
+
 RequireJsExportPlugin.prototype.apply = function (compiler) {
-    compiler.plugin('compilation', (compilation, data) => {
-        compilation.plugin('after-optimize-module-ids', (modules) => {
+    registerHook(compiler, 'compilation', 'compilation', (compilation, data) => {
+        registerHook(compilation, 'after-optimize-module-ids', 'afterOptimizeModuleIds', (modules) => {
             for (let module of modules) {
                 // TODO: Find a way around using _source.
                 if (shouldExport(module) && module._source) {
@@ -108,9 +116,10 @@ RequireJsExportPlugin.prototype.apply = function (compiler) {
             }
         });
 
-        compilation.plugin('chunk-asset', (chunk, filename) => {
-            const needsImport = gatherRequireJsImports(chunk.modules);
-            const needsExport = gatherRequireJsExports(chunk.modules);
+        registerHook(compilation, 'chunk-asset', 'chunkAsset', (chunk, filename) => {
+            const modules = chunk.modulesIterable ? Array.from(chunk.modulesIterable) : modules;
+            const needsImport = gatherRequireJsImports(modules);
+            const needsExport = gatherRequireJsExports(modules);
             if (needsImport.length != 0 || needsExport.length != 0) {
                 let prolog = generateProlog(chunk.id, needsImport, needsExport);
                 let epilog = generateEpilog(chunk.id, needsImport, needsExport);
