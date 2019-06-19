@@ -7,7 +7,7 @@ function RequireJsExportPlugin() {
 
 function gatherRequireJsImports(modules) {
     let needsImport = [];
-    for (var module of modules) {
+    for (let module of modules) {
         // If the requirejs-loader was used, then we need to wrap and import this module.
         // TODO: Clean up this check.
         // Necessary to check for both jquery.js and jquery.min.js (for sites with minification)
@@ -38,10 +38,10 @@ function shouldExport(module) {
 
 function gatherRequireJsExports(modules) {
     let needsExport = [];
-    for (var module of modules) {
+    for (let module of modules) {
         if (shouldExport(module)) {
             // We use the raw request to define the same name, including loader.
-            var name = module.rawRequest;
+            let name = module.rawRequest;
             // TODO: Maybe just strip everything but 'text!'?
             if (name.indexOf('script-loader!') === 0) {
                 name = name.substr('script-loader!'.length);
@@ -58,12 +58,12 @@ function generateProlog(chunkId, imports, exports) {
     const jsonDefineStub = JSON.stringify('__webpack_export_' + chunkId);
 
     let prolog = `
-        (function(){
+        (function (){
             var __webpack_exports__ = {};`;
 
     if (imports.length !== 0) {
         prolog += `
-            window.define(${jsonDefineStub}, ${jsonImports}, function() {`;
+            window.define(${jsonDefineStub}, ${jsonImports}, function () {`;
     }
 
     return prolog;
@@ -81,13 +81,13 @@ function generateEpilog(chunkId, imports, exports) {
         const jsonName = JSON.stringify(module.name);
         const jsonId = JSON.stringify(module.id);
         epilog += `
-            window.define(${jsonName}, ${jsonDefineStubs}, function() { return __webpack_exports__[${jsonId}]; });`;
+            window.define(${jsonName}, ${jsonDefineStubs}, function () { return __webpack_exports__[${jsonId}]; });`;
     }
 
     if (imports.length !== 0) {
         // Immediately require script
         epilog += `
-            window.require(['__webpack_export_${chunkId}'], function() {});`;
+            window.require(['__webpack_export_${chunkId}'], function () {});`;
     }
 
     epilog += `
@@ -96,13 +96,13 @@ function generateEpilog(chunkId, imports, exports) {
     return epilog;
 }
 
-RequireJsExportPlugin.prototype.apply = function(compiler) {
-    compiler.plugin('compilation', function (compilation, data) {
-        compilation.plugin('after-optimize-module-ids', function(modules) {
+RequireJsExportPlugin.prototype.apply = function (compiler) {
+    compiler.plugin('compilation', (compilation, data) => {
+        compilation.plugin('after-optimize-module-ids', (modules) => {
             for (let module of modules) {
                 // TODO: Find a way around using _source.
                 if (shouldExport(module) && module._source) {
-                    var definition = '__webpack_exports__[' + JSON.stringify(module.id) + '] = module.exports;';
+                    const definition = '__webpack_exports__[' + JSON.stringify(module.id) + '] = module.exports;';
                     module._source = new ConcatSource(module._source, '\n', definition);
                 }
             }
