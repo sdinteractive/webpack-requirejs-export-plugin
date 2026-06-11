@@ -1,7 +1,7 @@
 {
   "name": "@sdinteractive/requirejs-export-plugin",
-  "version": "3.0.0",
-  "description": "webpack plugin to export modules to requirejs.",
+  "version": "4.0.0",
+  "description": "webpack plugin to export modules to requirejs. Supports webpack 4 and webpack 5.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

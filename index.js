@@ -1,36 +1,24 @@
 'use strict';
 
-const ConcatSource = require('webpack-sources').ConcatSource;
+const { ConcatSource } = require('webpack-sources');
 
-function RequireJsExportPlugin() {
+function isNormalModule(module) {
+    return Boolean(module && typeof module.request === 'string' && module.rawRequest != null);
 }
 
 function gatherRequireJsImports(modules) {
     let needsImport = [];
     for (let module of modules) {
-        // If the requirejs-loader was used, then we need to wrap and import this module.
-        // It's safe to use mixins! in all cases, and necessary for anything where require('mixins').hasMixins(module) is true.
-        // TODO: Clean up this check.
-        if (module.request && String(module.request).indexOf('requirejs-loader') !== -1) {
+        if (isNormalModule(module) && String(module.request).indexOf('requirejs-loader') !== -1) {
             needsImport.push('mixins!' + module.rawRequest);
         }
     }
-
     return needsImport;
 }
 
 function shouldExport(module) {
-    // This ensures we don't export the import stubs for requirejs.
-    // TODO: Clean up this check.
-    if (!module.request || String(module.request).indexOf('requirejs-loader') !== -1) {
-        return false;
-    }
-
-    // Some internal modules have no rawRequest - don't export those either.
-    if (!module.rawRequest) {
-        return false;
-    }
-
+    if (!isNormalModule(module)) return false;
+    if (String(module.request).indexOf('requirejs-loader') !== -1) return false;
     return true;
 }
 
@@ -38,16 +26,13 @@ function gatherRequireJsExports(modules) {
     let needsExport = [];
     for (let module of modules) {
         if (shouldExport(module)) {
-            // We use the raw request to define the same name, including loader.
             let name = module.rawRequest;
-            // TODO: Maybe just strip everything but 'text!'?
             if (name.indexOf('script-loader!') === 0) {
                 name = name.substr('script-loader!'.length);
             }
             needsExport.push({ id: module.id, name: name });
         }
     }
-
     return needsExport;
 }
 
@@ -69,6 +54,7 @@ function generateProlog(chunkId, imports, exports) {
 
 function generateEpilog(chunkId, imports, exports) {
     let epilog = '';
+
     if (imports.length !== 0) {
         epilog += `
             });`;
@@ -83,7 +69,6 @@ function generateEpilog(chunkId, imports, exports) {
     }
 
     if (imports.length !== 0) {
-        // Immediately require script
         epilog += `
             window.require(['__webpack_export_${chunkId}'], function () {});`;
     }
@@ -94,40 +79,88 @@ function generateEpilog(chunkId, imports, exports) {
     return epilog;
 }
 
-function registerHook(object, oldName, newName, cb) {
-    if (object.hooks) {
-        object.hooks[newName].tap('RequireJsExportPlugin', cb);
-    } else {
-        object.plugin(oldName, cb);
-    }
+function RequireJsExportPlugin() {
 }
 
 RequireJsExportPlugin.prototype.apply = function (compiler) {
-    registerHook(compiler, 'compilation', 'compilation', (compilation, data) => {
-        registerHook(compilation, 'after-optimize-module-ids', 'afterOptimizeModuleIds', (modules) => {
-            for (let module of modules) {
-                // TODO: Find a way around using _source.
-                if (shouldExport(module) && module._source) {
-                    const definition = '__webpack_exports__[' + JSON.stringify(module.id) + '] = module.exports;';
-                    module._source = new ConcatSource(module._source, '\n', definition);
+    const isWebpack5 = Boolean(compiler.webpack);
+
+    if (isWebpack5) {
+        // webpack 5: disable IIFE wrapper so __webpack_require__ is accessible
+        // within our own prolog IIFE scope.
+        compiler.options.output = compiler.options.output || {};
+        compiler.options.output.iife = false;
+
+        compiler.hooks.compilation.tap('RequireJsExportPlugin', (compilation) => {
+            const Compilation = compiler.webpack.Compilation;
+
+            compilation.hooks.processAssets.tap(
+                {
+                    name: 'RequireJsExportPlugin',
+                    stage: Compilation.PROCESS_ASSETS_STAGE_SUMMARIZE,
+                },
+                () => {
+                    for (const chunk of compilation.chunks) {
+                        const chunkModules = Array.from(
+                            compilation.chunkGraph.getChunkModulesIterable(chunk)
+                        );
+
+                        const needsImport = gatherRequireJsImports(chunkModules);
+                        const needsExport = gatherRequireJsExports(chunkModules);
+
+                        if (needsImport.length === 0 && needsExport.length === 0) continue;
+
+                        // Since output.iife = false, __webpack_require__ is in our prolog scope.
+                        // Call it for each exported module to populate __webpack_exports__.
+                        const captureCode = needsExport
+                            .map(({ id }) =>
+                                `            try { __webpack_exports__[${JSON.stringify(id)}] = __webpack_require__(${JSON.stringify(id)}); } catch(e) {}`
+                            )
+                            .join('\n');
+
+                        const prolog = generateProlog(chunk.id, needsImport, needsExport);
+                        const epilog = generateEpilog(chunk.id, needsImport, needsExport);
+
+                        for (const filename of chunk.files) {
+                            compilation.updateAsset(
+                                filename,
+                                (old) => new ConcatSource(prolog, '\n', old, '\n', captureCode, '\n', epilog)
+                            );
+                        }
+                    }
                 }
-            }
+            );
         });
+    } else {
+        // webpack 4 legacy path
+        compiler.hooks.compilation.tap('RequireJsExportPlugin', (compilation) => {
+            compilation.hooks.afterOptimizeModuleIds.tap('RequireJsExportPlugin', (modules) => {
+                for (let module of modules) {
+                    if (shouldExport(module) && module._source) {
+                        const definition = '__webpack_exports__[' + JSON.stringify(module.id) + '] = module.exports;';
+                        module._source = new ConcatSource(module._source, '\n', definition);
+                    }
+                }
+            });
 
-        registerHook(compilation, 'chunk-asset', 'chunkAsset', (chunk, filename) => {
-            const modules = chunk.modulesIterable ? Array.from(chunk.modulesIterable) : modules;
-            const needsImport = gatherRequireJsImports(modules);
-            const needsExport = gatherRequireJsExports(modules);
-            if (needsImport.length != 0 || needsExport.length != 0) {
-                let prolog = generateProlog(chunk.id, needsImport, needsExport);
-                let epilog = generateEpilog(chunk.id, needsImport, needsExport);
+            compilation.hooks.chunkAsset.tap('RequireJsExportPlugin', (chunk, filename) => {
+                const modules = chunk.modulesIterable ? Array.from(chunk.modulesIterable) : [];
+                const needsImport = gatherRequireJsImports(modules);
+                const needsExport = gatherRequireJsExports(modules);
 
-                compilation.assets[filename] = new ConcatSource(prolog, "\n", compilation.assets[filename], "\n", epilog);
-            }
+                if (needsImport.length === 0 && needsExport.length === 0) return;
 
-            chunk['--requirejs-export:done'] = true;
+                const prolog = generateProlog(chunk.id, needsImport, needsExport);
+                const epilog = generateEpilog(chunk.id, needsImport, needsExport);
+
+                compilation.assets[filename] = new ConcatSource(
+                    prolog, '\n', compilation.assets[filename], '\n', epilog
+                );
+
+                chunk['--requirejs-export:done'] = true;
+            });
         });
-    });
+    }
 };
 
 module.exports = RequireJsExportPlugin;
