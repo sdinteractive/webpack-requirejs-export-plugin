@@ -6,6 +6,9 @@ function isNormalModule(module) {
     return Boolean(module && typeof module.request === 'string' && module.rawRequest != null);
 }
 
+function RequireJsExportPlugin() {
+}
+
 function gatherRequireJsImports(modules) {
     let needsImport = [];
     for (let module of modules) {
@@ -13,6 +16,7 @@ function gatherRequireJsImports(modules) {
             needsImport.push('mixins!' + module.rawRequest);
         }
     }
+
     return needsImport;
 }
 
@@ -33,16 +37,18 @@ function gatherRequireJsExports(modules) {
             needsExport.push({ id: module.id, name: name });
         }
     }
+
     return needsExport;
 }
 
-function generateProlog(chunkId, imports, exports) {
+function generateProlog(chunkId, imports) {
     const jsonImports = JSON.stringify(imports);
     const jsonDefineStub = JSON.stringify('__webpack_export_' + chunkId);
 
     let prolog = `
         (function (){
-            var __webpack_exports__ = {};`;
+            window.__requirejs_exports__ = window.__requirejs_exports__ || {};
+            var __requirejs_exports__ = window.__requirejs_exports__;`;
 
     if (imports.length !== 0) {
         prolog += `
@@ -65,7 +71,10 @@ function generateEpilog(chunkId, imports, exports) {
         const jsonName = JSON.stringify(module.name);
         const jsonId = JSON.stringify(module.id);
         epilog += `
-            window.define(${jsonName}, ${jsonDefineStubs}, function () { return __webpack_exports__[${jsonId}]; });`;
+            window.define(${jsonName}, ${jsonDefineStubs}, function () {
+                var exp = __requirejs_exports__[${jsonId}];
+                return (exp && exp.__esModule && exp.default) ? exp.default : exp;
+            });`;
     }
 
     if (imports.length !== 0) {
@@ -79,15 +88,10 @@ function generateEpilog(chunkId, imports, exports) {
     return epilog;
 }
 
-function RequireJsExportPlugin() {
-}
-
 RequireJsExportPlugin.prototype.apply = function (compiler) {
     const isWebpack5 = Boolean(compiler.webpack);
 
     if (isWebpack5) {
-        // webpack 5: disable IIFE wrapper so __webpack_require__ is accessible
-        // within our own prolog IIFE scope.
         compiler.options.output = compiler.options.output || {};
         compiler.options.output.iife = false;
 
@@ -110,11 +114,9 @@ RequireJsExportPlugin.prototype.apply = function (compiler) {
 
                         if (needsImport.length === 0 && needsExport.length === 0) continue;
 
-                        // Since output.iife = false, __webpack_require__ is in our prolog scope.
-                        // Call it for each exported module to populate __webpack_exports__.
                         const captureCode = needsExport
                             .map(({ id }) =>
-                                `            try { __webpack_exports__[${JSON.stringify(id)}] = __webpack_require__(${JSON.stringify(id)}); } catch(e) {}`
+                                ` try { __requirejs_exports__[${JSON.stringify(id)}] = __webpack_require__(${JSON.stringify(id)}); } catch(e) {}`
                             )
                             .join('\n');
 
@@ -132,7 +134,6 @@ RequireJsExportPlugin.prototype.apply = function (compiler) {
             );
         });
     } else {
-        // webpack 4 legacy path
         compiler.hooks.compilation.tap('RequireJsExportPlugin', (compilation) => {
             compilation.hooks.afterOptimizeModuleIds.tap('RequireJsExportPlugin', (modules) => {
                 for (let module of modules) {
@@ -153,9 +154,7 @@ RequireJsExportPlugin.prototype.apply = function (compiler) {
                 const prolog = generateProlog(chunk.id, needsImport, needsExport);
                 const epilog = generateEpilog(chunk.id, needsImport, needsExport);
 
-                compilation.assets[filename] = new ConcatSource(
-                    prolog, '\n', compilation.assets[filename], '\n', epilog
-                );
+                compilation.assets[filename] = new ConcatSource(prolog, "\n", compilation.assets[filename], "\n", epilog);
 
                 chunk['--requirejs-export:done'] = true;
             });
