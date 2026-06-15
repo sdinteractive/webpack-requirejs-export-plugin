@@ -93,6 +93,10 @@ RequireJsExportPlugin.prototype.apply = function (compiler) {
 
     if (isWebpack5) {
         compiler.options.output = compiler.options.output || {};
+        if (Object.prototype.hasOwnProperty.call(compiler.options.output, 'iife')
+            && compiler.options.output.iife === true) {
+            throw new Error('RequireJsExportPlugin requires output.iife = false when using webpack 5.');
+        }
         compiler.options.output.iife = false;
 
         compiler.hooks.compilation.tap('RequireJsExportPlugin', (compilation) => {
@@ -116,7 +120,7 @@ RequireJsExportPlugin.prototype.apply = function (compiler) {
 
                         const captureCode = needsExport
                             .map(({ id }) =>
-                                ` try { __requirejs_exports__[${JSON.stringify(id)}] = __webpack_require__(${JSON.stringify(id)}); } catch(e) {}`
+                                ` try { __requirejs_exports__[${JSON.stringify(id)}] = __webpack_require__(${JSON.stringify(id)}); } catch(e) { /* Intentionally ignore modules that cannot be required in this chunk context. */ }`
                             )
                             .join('\n');
 
@@ -124,6 +128,8 @@ RequireJsExportPlugin.prototype.apply = function (compiler) {
                         const epilog = generateEpilog(chunk.id, needsImport, needsExport);
 
                         for (const filename of chunk.files) {
+                            if (!filename.endsWith('.js')) continue;
+
                             compilation.updateAsset(
                                 filename,
                                 (old) => new ConcatSource(prolog, '\n', old, '\n', captureCode, '\n', epilog)
@@ -145,6 +151,8 @@ RequireJsExportPlugin.prototype.apply = function (compiler) {
             });
 
             compilation.hooks.chunkAsset.tap('RequireJsExportPlugin', (chunk, filename) => {
+                if (!filename.endsWith('.js')) return;
+
                 const modules = chunk.modulesIterable ? Array.from(chunk.modulesIterable) : [];
                 const needsImport = gatherRequireJsImports(modules);
                 const needsExport = gatherRequireJsExports(modules);
