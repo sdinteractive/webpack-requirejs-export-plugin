@@ -101,6 +101,43 @@ RequireJsExportPlugin.prototype.apply = function (compiler) {
 
         compiler.hooks.compilation.tap('RequireJsExportPlugin', (compilation) => {
             const Compilation = compiler.webpack.Compilation;
+            const JavascriptModulesPlugin =
+                compiler.webpack.javascript.JavascriptModulesPlugin;
+
+            const jsHooks =
+                JavascriptModulesPlugin.getCompilationHooks(compilation);
+
+            jsHooks.renderModuleContent.tap(
+                'RequireJsExportPlugin',
+                (source, module) => {
+
+                    if (!shouldExport(module)) {
+                        return source;
+                    }
+
+                    return new ConcatSource(
+                        source,
+                        `
+
+                            window.__requirejs_exports__ =
+                                window.__requirejs_exports__ || {};
+
+                            if (typeof __webpack_exports__ !== 'undefined') {
+                                window.__requirejs_exports__[${JSON.stringify(module.id)}] =
+                                    (__webpack_exports__ &&
+                                    __webpack_exports__.__esModule &&
+                                    Object.prototype.hasOwnProperty.call(
+                                        __webpack_exports__,
+                                        'default'
+                                    ))
+                                        ? __webpack_exports__.default
+                                        : __webpack_exports__;
+                            }
+
+                        `
+                    );
+                }
+            );
 
             compilation.hooks.processAssets.tap(
                 {
@@ -118,12 +155,6 @@ RequireJsExportPlugin.prototype.apply = function (compiler) {
 
                         if (needsImport.length === 0 && needsExport.length === 0) continue;
 
-                        const captureCode = needsExport
-                            .map(({ id }) =>
-                                ` try { __requirejs_exports__[${JSON.stringify(id)}] = __webpack_require__(${JSON.stringify(id)}); } catch(e) { /* Intentionally ignore modules that cannot be required in this chunk context. */ }`
-                            )
-                            .join('\n');
-
                         const prolog = generateProlog(chunk.id, needsImport, needsExport);
                         const epilog = generateEpilog(chunk.id, needsImport, needsExport);
 
@@ -132,7 +163,7 @@ RequireJsExportPlugin.prototype.apply = function (compiler) {
 
                             compilation.updateAsset(
                                 filename,
-                                (old) => new ConcatSource(prolog, '\n', old, '\n', captureCode, '\n', epilog)
+                                (old) => new ConcatSource(prolog, '\n', old, '\n', epilog)
                             );
                         }
                     }
