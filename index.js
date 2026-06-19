@@ -118,7 +118,6 @@ RequireJsExportPlugin.prototype.apply = function (compiler) {
                     return new ConcatSource(
                         source,
                         `
-
                             window.__requirejs_exports__ =
                                 window.__requirejs_exports__ || {};
 
@@ -133,7 +132,6 @@ RequireJsExportPlugin.prototype.apply = function (compiler) {
                                         ? __webpack_exports__.default
                                         : __webpack_exports__;
                             }
-
                         `
                     );
                 }
@@ -155,7 +153,7 @@ RequireJsExportPlugin.prototype.apply = function (compiler) {
 
                         if (needsImport.length === 0 && needsExport.length === 0) continue;
 
-                        const prolog = generateProlog(chunk.id, needsImport, needsExport);
+                        const prolog = generateProlog(chunk.id, needsImport);
                         const epilog = generateEpilog(chunk.id, needsImport, needsExport);
 
                         for (const filename of chunk.files) {
@@ -190,7 +188,7 @@ RequireJsExportPlugin.prototype.apply = function (compiler) {
 
                 if (needsImport.length === 0 && needsExport.length === 0) return;
 
-                const prolog = generateProlog(chunk.id, needsImport, needsExport);
+                const prolog = generateProlog(chunk.id, needsImport);
                 const epilog = generateEpilog(chunk.id, needsImport, needsExport);
 
                 compilation.assets[filename] = new ConcatSource(prolog, "\n", compilation.assets[filename], "\n", epilog);
